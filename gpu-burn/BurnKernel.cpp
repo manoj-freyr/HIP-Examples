@@ -141,7 +141,37 @@ int BurnKernel::bindHipDevice()
 int BurnKernel::runComputeKernel()
 {
     int err = 0;
+    int cuPartitions = 4;
+    float *dA[cuPartitions], *dC[cuPartitions];
+    hipDeviceProp_t props;
+    HIP_CHECK(hipGetDeviceProperties(&props, mHipDevice));
+    std::vector<uint32_t> defaultCUMask;
+    hipStream_t stream{};
+    // WGP is 2 CUs post major compute version 10
+    size_t cuMaskSize = props.multiProcessorCount/32 ; // each 32 bit value in vector
+    std::vector<uint32_t> cuMask(cuMaskSize);
+    // rocr cu mask
+    std::string gCUMask;
+    uint32_t temp = 0, idx = 0;
+    // select all CUs in default mask
+    for (uint32_t i = 0; i < (uint32_t)props.multiProcessorCount; i++) {
+        temp |= 1UL << bit_index;
+	if (bit_index >= 32) {
+	    defaultCUMask.push_back(temp);
+	    temp = 0;
+            bit_index = 0;
+            temp |= 1UL << bit_index;
+	}
+	bit_index += 1;
+    }
+    // rest of the CUs
+    if (bit_index != 0) {
+        defaultCUMask.push_back(temp);
+    }
+    
 
+
+    HIP_CHECK(hipExtStreamCreateWithCUMask(&stream, cu_mask.size(), cu_mask.data()));
     for (int i = 0; mRunKernel && i < mNumIterations; ++i) {
         hipLaunchKernelGGL(
             /* Launch params */
@@ -157,7 +187,7 @@ int BurnKernel::runComputeKernel()
             cRowSize);
     }
     checkError(hipDeviceSynchronize(), "Sync");
-
+    HIP_CHECK(hipStreamDestroy(stream));
     return err;
 }
 
